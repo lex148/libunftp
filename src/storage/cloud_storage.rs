@@ -250,16 +250,22 @@ impl<U: Send> StorageBackend<U> for CloudStorage {
             },
         };
 
-        let uri = match path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| Error::from(ErrorKind::FileNameNotAllowedError))
-            .and_then(|path| make_uri(format!("/storage/v1/b/{}/o?delimiter=/&prefix={}", self.bucket, path)))
-        {
-            Ok(uri) => uri,
-            Err(err) => return Box::new(stream::once(Err(err))),
+        let path = match path.as_ref().to_str() {
+            Some(path) => path.clone(),
+            None => {
+                let err = Error::from(ErrorKind::FileNameNotAllowedError);
+                return Box::new(stream::once(Err(err)));
+            }
         };
 
+        // let exact_match = move |item: &Item| &item.name == path;
+
+        let uri = match make_uri(format!("/storage/v1/b/{}/o?delimiter=/&prefix={}", self.bucket, path)) {
+            Ok(uri) => uri,
+            Err(err) => {
+                return Box::new(stream::once(Err(err)));
+            }
+        };
         let client = self.client.clone();
 
         let result = self
@@ -287,6 +293,7 @@ impl<U: Send> StorageBackend<U> for CloudStorage {
                     })
             })
             .flatten_stream()
+            .filter(|item| &item.name == path)
             .map(item_to_file_info);
         Box::new(result)
     }
